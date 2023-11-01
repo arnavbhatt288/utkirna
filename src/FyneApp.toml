@@ -1,0 +1,13 @@
+[Details]
+  Icon = "assets/images/Icon.png"
+  Name = "Utkirna"
+  ID = "com.ghativega.Utkirna"
+  Version = "0.5.0"
+  Build = 1
+
+[LinuxAndBSD]
+  GenericName = "Disk Imager"
+  Categories = ["Disk", "Utility"]
+  Comment = "A program to write a raw disk image to a removable device or backup a removable device to a raw image file."
+  Keywords = ["disk imager", "utkirna", "fyne"]
+  ExecParams = "%F"
