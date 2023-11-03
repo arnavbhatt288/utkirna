@@ -39,12 +39,12 @@ func fmtDuration(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
 }
 
-func StartTimer(start time.Time, widgets GUI) chan bool {
-	ch := make(chan bool)
+func StartTimer(start time.Time, widgets GUI) chan struct{} {
+	chQuit := make(chan struct{})
 	go func() {
 		for range time.Tick(time.Second) {
 			select {
-			case <-ch:
+			case <-chQuit:
 				return
 			default:
 				elapsed := time.Since(start)
@@ -53,13 +53,15 @@ func StartTimer(start time.Time, widgets GUI) chan bool {
 			}
 		}
 	}()
-	return ch
+	return chQuit
 }
 
 func cleanUp(data *MainData, gui GUI, handles Handles) {
-	data.bQuitTimer <- true
+	data.bQuitTimer <- struct{}{}
+	close(data.bQuitTask)
+	close(data.bQuitTimer)
 	CloseRequiredHandles(handles)
-	disableCancelButton(gui, *data)
+	DisableCancelButton(gui, *data)
 }
 
 func StartMainTask(data *MainData, gui GUI) {
@@ -124,63 +126,60 @@ func ReadDisk(data *MainData, gui GUI, handles Handles) {
 	lasti := int64(0)
 	updateTimer := time.Now()
 
-	data.bQuitTask = make(chan bool)
+	data.bQuitTask = make(chan struct{})
 	go func() {
+		defer cleanUp(data, gui, handles)
 		for i := int64(0); i < diskNumSectors; i += 1024 {
 			select {
 			case <-data.bQuitTask:
 				return
 			default:
-				{
-					set := determineOptimalSize(diskNumSectors, i)
+				set := determineOptimalSize(diskNumSectors, i)
+				sectorData, err := ReadSectorDataFromHandle(
+					handles.hDisk,
+					i,
+					set,
+					diskSector,
+				)
 
-					sectorData, err := ReadSectorDataFromHandle(
-						handles.hDisk,
-						i,
-						set,
-						diskSector,
+				if err != nil {
+					HandleError(
+						gui,
+						data,
+						errors.Join(
+							errors.New("ReadDisk(): ReadSectorDataFromHandle failed"),
+							err,
+						),
 					)
-					if err != nil {
-						cleanUp(data, gui, handles)
-						HandleError(
-							gui,
-							data,
-							errors.Join(
-								errors.New("ReadDisk(): ReadSectorDataFromHandle failed"),
-								err,
-							),
-						)
-						return
-					}
+					return
+				}
 
-					err = WriteSectorDataFromHandle(handles.hImage, sectorData, i, diskSector)
-					if err != nil {
-						cleanUp(data, gui, handles)
-						HandleError(
-							gui,
-							data,
-							errors.Join(
-								errors.New("ReadDisk(): WriteSectorDataFromHandle failed"),
-								err,
-							),
-						)
-						return
-					}
+				err = WriteSectorDataFromHandle(handles.hImage, sectorData, i, diskSector)
+				if err != nil {
+					HandleError(
+						gui,
+						data,
+						errors.Join(
+							errors.New("ReadDisk(): WriteSectorDataFromHandle failed"),
+							err,
+						),
+					)
+					return
+				}
 
-					gui.rwProgressBar.SetValue(float64(i))
-					if time.Since(updateTimer).Milliseconds() >= 1000 {
-						mbPerSec := float64(
-							(int64(diskSector) * (i - lasti)),
-						) * (1000 / float64(time.Since(updateTimer).Milliseconds())) / 1024.0 / 1024.0
-						setText := fmt.Sprintf("%f MB/s", mbPerSec)
-						gui.speedLabel.SetText(setText)
-						lasti = i
-						updateTimer = time.Now()
-					}
+				gui.rwProgressBar.SetValue(float64(i))
+				if time.Since(updateTimer).Milliseconds() >= 1000 {
+					mbPerSec := float64(
+						(int64(diskSector) * (i - lasti)),
+					) * (1000 / float64(time.Since(updateTimer).Milliseconds())) / 1024.0 / 1024.0
+					setText := fmt.Sprintf("%f MB/s", mbPerSec)
+					gui.speedLabel.SetText(setText)
+					lasti = i
+					updateTimer = time.Now()
 				}
 			}
 		}
-		cleanUp(data, gui, handles)
+		gui.statusLabel.SetText("Success!")
 	}()
 }
 
@@ -220,99 +219,94 @@ func WriteVerifyDisk(data *MainData, gui GUI, handles Handles) {
 	lasti := int64(0)
 	updateTimer := time.Now()
 
-	data.bQuitTask = make(chan bool)
+	data.bQuitTask = make(chan struct{})
 	go func() {
+		defer cleanUp(data, gui, handles)
 		for i := int64(0); i < imageNumSectors; i += 1024 {
 			select {
 			case <-data.bQuitTask:
 				return
 			default:
-				{
-					numSectors := determineOptimalSize(imageNumSectors, i)
+				numSectors := determineOptimalSize(imageNumSectors, i)
+				sectorData, err := ReadSectorDataFromHandle(
+					handles.hImage,
+					i,
+					numSectors,
+					diskSector,
+				)
 
-					sectorData, err := ReadSectorDataFromHandle(
-						handles.hImage,
-						i,
-						numSectors,
-						diskSector,
+				if err != nil {
+					HandleError(
+						gui,
+						data,
+						errors.Join(
+							errors.New("WriteVerifyDisk(): ReadSectorDataFromHandle failed"),
+							err,
+						),
 					)
-					if err != nil {
-						cleanUp(data, gui, handles)
-						HandleError(
-							gui,
-							data,
-							errors.Join(
-								errors.New("WriteVerifyDisk(): ReadSectorDataFromHandle failed"),
-								err,
-							),
-						)
-						return
-					}
+					return
+				}
 
-					if data.taskType == START_WRITE {
-						err = WriteSectorDataFromHandle(
-							handles.hDisk,
-							sectorData,
-							i,
-							diskSector,
-						)
-						if err != nil {
-							cleanUp(data, gui, handles)
-							HandleError(
-								gui,
-								data,
-								errors.Join(
-									errors.New(
-										"WriteVerifyDisk(): WriteSectorDataFromHandle failed",
-									),
-									err,
-								),
-							)
-							return
-						}
-					}
-					sectorData2, err := ReadSectorDataFromHandle(
+				if data.taskType == START_WRITE {
+					err = WriteSectorDataFromHandle(
 						handles.hDisk,
+						sectorData,
 						i,
-						numSectors,
 						diskSector,
 					)
 					if err != nil {
-						cleanUp(data, gui, handles)
 						HandleError(
 							gui,
 							data,
 							errors.Join(
-								errors.New("WriteVerifyDisk(): ReadSectorDataFromHandle failed"),
+								errors.New(
+									"WriteVerifyDisk(): WriteSectorDataFromHandle failed",
+								),
 								err,
 							),
 						)
 						return
 					}
+				}
+				sectorData2, err := ReadSectorDataFromHandle(
+					handles.hDisk,
+					i,
+					numSectors,
+					diskSector,
+				)
+				if err != nil {
+					HandleError(
+						gui,
+						data,
+						errors.Join(
+							errors.New("WriteVerifyDisk(): ReadSectorDataFromHandle failed"),
+							err,
+						),
+					)
+					return
+				}
 
-					if !bytes.Equal(sectorData, sectorData2) {
-						cleanUp(data, gui, handles)
-						strError := fmt.Sprintf(
-							"WriteVerifyDisk(): Verification failed at sector: %d\n",
-							i,
-						)
-						HandleError(gui, data, errors.New(strError))
-						return
-					}
+				if !bytes.Equal(sectorData, sectorData2) {
+					strError := fmt.Sprintf(
+						"WriteVerifyDisk(): Verification failed at sector: %d\n",
+						i,
+					)
+					HandleError(gui, data, errors.New(strError))
+					return
+				}
 
-					gui.rwProgressBar.SetValue(float64(i))
-					if time.Since(updateTimer).Milliseconds() >= 1000 {
-						mbPerSec := float64(
-							(int64(diskSector) * (i - lasti)),
-						) * (1000 / float64(time.Since(updateTimer).Milliseconds())) / 1024.0 / 1024.0
-						setText := fmt.Sprintf("%f MB/s", mbPerSec)
-						gui.speedLabel.SetText(setText)
-						lasti = i
-						updateTimer = time.Now()
-					}
+				gui.rwProgressBar.SetValue(float64(i))
+				if time.Since(updateTimer).Milliseconds() >= 1000 {
+					mbPerSec := float64(
+						(int64(diskSector) * (i - lasti)),
+					) * (1000 / float64(time.Since(updateTimer).Milliseconds())) / 1024.0 / 1024.0
+					setText := fmt.Sprintf("%f MB/s", mbPerSec)
+					gui.speedLabel.SetText(setText)
+					lasti = i
+					updateTimer = time.Now()
 				}
 			}
 		}
-		cleanUp(data, gui, handles)
+		gui.statusLabel.SetText("Success!")
 	}()
 }

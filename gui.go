@@ -15,8 +15,8 @@ type MainData struct {
 	taskType      TaskType
 	selectedDrive string
 	imagePath     string
-	bQuitTimer    chan bool
-	bQuitTask     chan bool
+	bQuitTimer    chan struct{}
+	bQuitTask     chan struct{}
 }
 
 type GUI struct {
@@ -30,7 +30,7 @@ type GUI struct {
 	guiTabs                                                                                               *container.AppTabs
 }
 
-func disableCancelButton(widgets GUI, data MainData) {
+func DisableCancelButton(widgets GUI, data MainData) {
 	if data.taskType == START_WRITE || data.taskType == START_VERIFY {
 		widgets.guiTabs.EnableIndex(1)
 	} else if data.taskType == START_READ {
@@ -77,7 +77,7 @@ func enableCancelButton(widgets GUI, data MainData) {
 }
 
 func FileOpenDialog(myApp fyne.App, gui GUI, data *MainData) {
-	window := myApp.NewWindow("Open File")
+	window := myApp.NewWindow("Utkirna")
 	window.CenterOnScreen()
 	window.SetFixedSize(true)
 
@@ -91,7 +91,6 @@ func FileOpenDialog(myApp fyne.App, gui GUI, data *MainData) {
 			gui.inputPath.SetText(data.imagePath)
 		}
 	}, window)
-	fd.SetFilter(storage.NewExtensionFileFilter([]string{".img"}))
 	fd.Show()
 	fd.SetOnClosed(func() {
 		window.Close()
@@ -105,7 +104,7 @@ func FileOpenDialog(myApp fyne.App, gui GUI, data *MainData) {
 }
 
 func FileSaveDialog(myApp fyne.App, gui GUI, data *MainData) {
-	window := myApp.NewWindow("Save File")
+	window := myApp.NewWindow("Utkirna")
 	window.CenterOnScreen()
 	window.SetFixedSize(true)
 
@@ -134,7 +133,7 @@ func FileSaveDialog(myApp fyne.App, gui GUI, data *MainData) {
 
 func HandleError(gui GUI, data *MainData, err error) {
 	dialog.ShowError(err, gui.window)
-	disableCancelButton(gui, *data)
+	DisableCancelButton(gui, *data)
 }
 
 func HandleStartError() {
@@ -229,13 +228,11 @@ func StartGui() {
 	gui.cancelButton = widget.NewButton("Cancel", func() {
 		dialog.ShowConfirm(
 			"Cancellation",
-			"Cancelling the current operation may corrupt the destination drive. Are you sure to continue?",
+			"Cancelling the current operation may corrupt the destination drive.\nAre you sure to continue?",
 			func(b bool) {
 				if b {
+					data.bQuitTask <- struct{}{}
 					gui.statusLabel.SetText("Cancelled")
-					data.bQuitTask <- true
-					disableCancelButton(gui, data)
-					data.bQuitTimer <- true
 				}
 			},
 			gui.window,
@@ -335,7 +332,6 @@ func StartGui() {
 		container.NewTabItem("Write To Disk", writeTab),
 		container.NewTabItem("Read From Disk", readTab),
 	)
-
 	gui.guiTabs.SetTabLocation(container.TabLocationTop)
 
 	gui.window.SetContent(gui.guiTabs)

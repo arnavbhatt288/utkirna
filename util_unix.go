@@ -24,7 +24,7 @@ func isPermAvailable() bool {
 	if err != nil {
 		fmt.Printf("[isRoot] Unable to get current user: %s", err)
 	}
-	return currentUser.Username == "root"
+	return currentUser.Uid == "0"
 }
 
 func gatherSizeInBytes(fd int) (int64, error) {
