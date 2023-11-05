@@ -17,10 +17,6 @@ const (
 	START_VERIFY
 )
 
-func GetTrueImagePath(path string) string {
-	return path[7:]
-}
-
 func determineOptimalSize(numSectors int64, sector int64) int64 {
 	if numSectors-sector >= int64(1024) {
 		return int64(1024)

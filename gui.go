@@ -22,7 +22,7 @@ type MainData struct {
 type GUI struct {
 	cancelButton, readButton, writeButton, exitButton, openButton, reloadButton, verifyButton, saveButton *widget.Button
 	selectDrive                                                                                           *widget.Select
-	inputPath                                                                                             *widget.Entry
+	openPath, savePath                                                                                    *widget.Entry
 	statusLabel, elapsedLabel, speedLabel                                                                 *widget.Label
 	rwProgressBar                                                                                         *widget.ProgressBar
 	window                                                                                                fyne.Window
@@ -39,7 +39,8 @@ func DisableCancelButton(widgets GUI, data MainData) {
 
 	widgets.selectDrive.Enable()
 	widgets.reloadButton.Enable()
-	widgets.inputPath.Enable()
+	widgets.openPath.Enable()
+	widgets.savePath.Enable()
 	widgets.openButton.Enable()
 	widgets.exitButton.Enable()
 	widgets.readButton.Enable()
@@ -64,7 +65,8 @@ func enableCancelButton(widgets GUI, data MainData) {
 
 	widgets.selectDrive.Disable()
 	widgets.reloadButton.Disable()
-	widgets.inputPath.Disable()
+	widgets.openPath.Disable()
+	widgets.savePath.Disable()
 	widgets.openButton.Disable()
 	widgets.exitButton.Disable()
 	widgets.readButton.Disable()
@@ -76,7 +78,7 @@ func enableCancelButton(widgets GUI, data MainData) {
 	widgets.cancelButton.Enable()
 }
 
-func FileOpenDialog(myApp fyne.App, gui GUI, data *MainData) {
+func FileOpenDialog(myApp fyne.App, gui GUI) {
 	window := myApp.NewWindow("Utkirna")
 	window.CenterOnScreen()
 	window.SetFixedSize(true)
@@ -87,8 +89,7 @@ func FileOpenDialog(myApp fyne.App, gui GUI, data *MainData) {
 			window.Close()
 		}
 		if reader != nil {
-			data.imagePath = GetTrueImagePath(reader.URI().String())
-			gui.inputPath.SetText(data.imagePath)
+			gui.openPath.SetText(reader.URI().Path())
 		}
 	}, window)
 	fd.Show()
@@ -103,7 +104,7 @@ func FileOpenDialog(myApp fyne.App, gui GUI, data *MainData) {
 	window.Show()
 }
 
-func FileSaveDialog(myApp fyne.App, gui GUI, data *MainData) {
+func FileSaveDialog(myApp fyne.App, gui GUI) {
 	window := myApp.NewWindow("Utkirna")
 	window.CenterOnScreen()
 	window.SetFixedSize(true)
@@ -114,8 +115,7 @@ func FileSaveDialog(myApp fyne.App, gui GUI, data *MainData) {
 			window.Close()
 		}
 		if writer != nil {
-			data.imagePath = GetTrueImagePath(writer.URI().String())
-			gui.inputPath.SetText(data.imagePath)
+			gui.savePath.SetText(writer.URI().Path())
 		}
 	}, window)
 	fd.SetFilter(storage.NewExtensionFileFilter([]string{".img"}))
@@ -189,22 +189,24 @@ func StartGui() {
 	selectImageLabel := widget.NewLabel("Select Image:")
 	saveImageLabel := widget.NewLabel("Save Image:")
 
-	gui.inputPath = widget.NewEntry()
-	gui.inputPath.SetPlaceHolder("Location of the image")
+	gui.openPath = widget.NewEntry()
+	gui.openPath.SetPlaceHolder("Location of the image to open")
+	gui.savePath = widget.NewEntry()
+	gui.savePath.SetPlaceHolder("Location of the image to save")
 
 	gui.openButton = widget.NewButton("Open Image", func() {
-		FileOpenDialog(myApp, gui, &data)
+		FileOpenDialog(myApp, gui)
 	})
 	gui.saveButton = widget.NewButton("Save Image", func() {
-		FileSaveDialog(myApp, gui, &data)
+		FileSaveDialog(myApp, gui)
 	})
 
 	openImage := container.NewGridWithColumns(2,
-		gui.inputPath,
+		gui.openPath,
 		gui.openButton,
 	)
 	saveImage := container.NewGridWithColumns(2,
-		gui.inputPath,
+		gui.savePath,
 		gui.saveButton,
 	)
 
@@ -247,12 +249,13 @@ func StartGui() {
 				"Select a drive to read from!",
 				gui.window,
 			)
-		} else if len(data.imagePath) < 1 {
+		} else if len(gui.openPath.Text) < 1 {
 			dialog.ShowInformation("Insufficient fields", "Select an image to write to!", gui.window)
 		} else {
 			dialog.ShowConfirm("Reading", "Are you sure to continue?", func(b bool) {
 				if b {
 					gui.statusLabel.SetText("Reading...")
+					data.imagePath = gui.savePath.Text
 					data.taskType = START_READ
 					enableCancelButton(gui, data)
 					StartMainTask(&data, gui)
@@ -263,12 +266,13 @@ func StartGui() {
 	gui.writeButton = widget.NewButton("Write", func() {
 		if len(data.selectedDrive) < 1 {
 			dialog.ShowInformation("Insufficient fields", "Select a drive to write to!", gui.window)
-		} else if len(data.imagePath) < 1 {
+		} else if len(gui.openPath.Text) < 1 {
 			dialog.ShowInformation("Insufficient fields", "Select an image to write from!", gui.window)
 		} else {
 			dialog.ShowConfirm("Writing", "Are you sure to continue?", func(b bool) {
 				if b {
 					gui.statusLabel.SetText("Writing...")
+					data.imagePath = gui.openPath.Text
 					data.taskType = START_WRITE
 					enableCancelButton(gui, data)
 					StartMainTask(&data, gui)
@@ -279,12 +283,13 @@ func StartGui() {
 	gui.verifyButton = widget.NewButton("Verify Only", func() {
 		if len(data.selectedDrive) < 1 {
 			dialog.ShowInformation("Insufficient fields", "Select a drive to verify!", gui.window)
-		} else if len(data.imagePath) < 1 {
+		} else if len(gui.openPath.Text) < 1 {
 			dialog.ShowInformation("Insufficient fields", "Select an image to verify from!", gui.window)
 		} else {
 			dialog.ShowConfirm("Verifying", "Are you sure to continue?", func(b bool) {
 				if b {
 					gui.statusLabel.SetText("Verifying...")
+					data.imagePath = gui.openPath.Text
 					data.taskType = START_VERIFY
 					enableCancelButton(gui, data)
 					StartMainTask(&data, gui)
@@ -335,6 +340,11 @@ func StartGui() {
 	gui.guiTabs.SetTabLocation(container.TabLocationTop)
 
 	gui.window.SetContent(gui.guiTabs)
+	gui.window.SetOnDropped(func(pos fyne.Position, dropped []fyne.URI) {
+		if gui.guiTabs.SelectedIndex() == 0 {
+			gui.openPath.SetText(dropped[0].Path())
+		}
+	})
 	gui.window.Show()
 
 	myApp.Run()
