@@ -92,7 +92,6 @@ func ReadDisk(data *MainData, gui GUI, handles Handles) {
 
 	if gui.mbrCheck.Checked {
 		mbrData := make([]byte, 512)
-		fmt.Print(mbrData)
 		err := ReadSectorDataFromHandle(handles.hDisk, &mbrData, 0, 512)
 		if err != nil {
 			cleanUp(data, gui, handles)

@@ -2,8 +2,8 @@
   Icon = "assets/images/Icon.png"
   Name = "Utkirna"
   ID = "com.ghativega.Utkirna"
-  Version = "1.0.1"
-  Build = 2
+  Version = "1.0.2"
+  Build = 3
 
 [LinuxAndBSD]
   GenericName = "Disk Imager"
