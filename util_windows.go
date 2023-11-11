@@ -99,11 +99,29 @@ func GetNumDiskSector(handle windows.Handle) (int64, int, error) {
 }
 
 /* To get physical handle, first get volume handle */
-func GetRequiredHandles(handles *Handles, volPath string, imgPath string) error {
+func GetRequiredHandles(handles *Handles, taskType TaskType, volPath string, imgPath string) error {
 	var err error
+	var diskAccess, imageAccess, diskFileFlags, imageFileFlags uint32
+
+	if taskType == START_WRITE {
+		diskAccess = windows.GENERIC_READ | windows.GENERIC_WRITE
+		imageAccess = windows.GENERIC_READ
+		diskFileFlags = windows.FILE_FLAG_WRITE_THROUGH | windows.FILE_FLAG_NO_BUFFERING
+		imageFileFlags = windows.FILE_FLAG_SEQUENTIAL_SCAN
+	} else if taskType == START_VERIFY {
+		diskAccess = windows.GENERIC_READ
+		imageAccess = windows.GENERIC_READ
+		diskFileFlags = windows.FILE_FLAG_NO_BUFFERING
+		imageFileFlags = windows.FILE_FLAG_SEQUENTIAL_SCAN
+	} else {
+		diskAccess = windows.GENERIC_READ
+		imageAccess = windows.GENERIC_WRITE
+		diskFileFlags = windows.FILE_FLAG_NO_BUFFERING
+	}
+
 	handles.hVolume, err = windows.CreateFile(
 		windows.StringToUTF16Ptr(fmt.Sprintf("\\\\.\\%s", volPath)),
-		windows.GENERIC_READ|windows.GENERIC_WRITE,
+		diskAccess,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
 		nil,
 		windows.OPEN_EXISTING,
@@ -133,11 +151,11 @@ func GetRequiredHandles(handles *Handles, volPath string, imgPath string) error 
 
 	handles.hDisk, err = windows.CreateFile(
 		windows.StringToUTF16Ptr(devicePath),
-		windows.GENERIC_READ|syscall.GENERIC_WRITE,
+		diskAccess,
 		windows.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE,
 		nil,
 		windows.OPEN_EXISTING,
-		0,
+		diskFileFlags,
 		0,
 	)
 	if err != nil {
@@ -148,11 +166,11 @@ func GetRequiredHandles(handles *Handles, volPath string, imgPath string) error 
 
 	handles.hImage, err = windows.CreateFile(
 		windows.StringToUTF16Ptr(imgPath),
-		windows.GENERIC_READ|windows.GENERIC_WRITE,
+		imageAccess,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
 		nil,
 		windows.OPEN_EXISTING,
-		0,
+		imageFileFlags,
 		0,
 	)
 	if err != nil {
@@ -166,26 +184,21 @@ func GetRequiredHandles(handles *Handles, volPath string, imgPath string) error 
 
 func ReadSectorDataFromHandle(
 	hRead windows.Handle,
+	data *[]byte,
 	startsector int64,
-	numsectors int64,
 	sectorsize int,
-) ([]byte, error) {
-	data := make([]byte, int64(sectorsize)*numsectors)
-
+) error {
 	_, err := windows.Seek(hRead, startsector*int64(sectorsize), windows.FILE_BEGIN)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	_, err = windows.Read(hRead, data)
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
+	_, err = windows.Read(hRead, *data)
+	return err
 }
 
 func WriteSectorDataFromHandle(
 	hWrite windows.Handle,
-	data []byte,
+	data *[]byte,
 	startsector int64,
 	sectorsize int,
 ) error {
@@ -194,9 +207,6 @@ func WriteSectorDataFromHandle(
 		return err
 	}
 
-	_, err = windows.Write(hWrite, data)
-	if err != nil {
-		return err
-	}
-	return nil
+	_, err = windows.Write(hWrite, *data)
+	return err
 }

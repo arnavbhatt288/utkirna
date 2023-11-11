@@ -100,17 +100,30 @@ func GetDisks() []string {
 	return drives
 }
 
-func GetRequiredHandles(handles *Handles, devPath string, imgPath string) error {
+func GetRequiredHandles(handles *Handles, taskType TaskType, devPath string, imgPath string) error {
+	var diskAccess, imageAccess int
+
 	err := unmountDisk(devPath)
 	if err != nil {
 		return err
 	}
-	handles.hDisk, err = unix.Open(devPath, unix.O_RDWR|unix.O_SYNC|unix.S_IRUSR|unix.S_IWUSR, 0)
+	if taskType == START_WRITE {
+		diskAccess = unix.O_RDWR | unix.O_DIRECT
+		imageAccess = unix.O_RDONLY
+	} else if taskType == START_VERIFY {
+		diskAccess = unix.O_RDONLY
+		imageAccess = unix.O_RDONLY | unix.O_DIRECT
+	} else if taskType == START_READ {
+		diskAccess = unix.O_RDONLY
+		imageAccess = unix.O_WRONLY | unix.O_DIRECT
+	}
+
+	handles.hDisk, err = unix.Open(devPath, diskAccess, 0777)
 	if err != nil {
 		return err
 	}
 
-	handles.hImage, err = unix.Open(imgPath, unix.O_RDWR|unix.O_SYNC, 0)
+	handles.hImage, err = unix.Open(imgPath, imageAccess, 0777)
 	if err != nil {
 		unix.Close(handles.hDisk)
 		return err
@@ -136,32 +149,25 @@ func GetNumDiskSector(fd int) (int64, int, error) {
 
 func ReadSectorDataFromHandle(
 	fd int,
+	data *[]byte,
 	startsector int64,
-	numsectors int64,
 	sectorsize int,
-) ([]byte, error) {
-	data := make([]byte, int64(sectorsize)*numsectors)
-
+) error {
 	_, err := unix.Seek(fd, startsector*int64(sectorsize), unix.SEEK_SET)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	_, err = unix.Read(fd, data)
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
+
+	_, err = unix.Read(fd, *data)
+	return err
 }
 
-func WriteSectorDataFromHandle(fd int, data []byte, startsector int64, sectorsize int) error {
+func WriteSectorDataFromHandle(fd int, data *[]byte, startsector int64, sectorsize int) error {
 	_, err := unix.Seek(fd, startsector*int64(sectorsize), unix.SEEK_SET)
 	if err != nil {
 		return err
 	}
 
-	_, err = unix.Write(fd, data)
-	if err != nil {
-		return err
-	}
+	_, err = unix.Write(fd, *data)
 	return err
 }

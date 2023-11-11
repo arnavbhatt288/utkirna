@@ -168,7 +168,7 @@ func StartGui() {
 
 	gui.window = myApp.NewWindow("Utkirna")
 	gui.window.CenterOnScreen()
-	gui.window.Resize(fyne.NewSize(600, 350))
+	gui.window.Resize(fyne.NewSize(600, 360))
 	gui.window.SetFixedSize(true)
 
 	drive_label := widget.NewLabel(("Select Drive:"))
@@ -216,21 +216,30 @@ func StartGui() {
 	gui.rwProgressBar = widget.NewProgressBar()
 
 	gui.speedLabel = widget.NewLabel("")
+	gui.speedLabel.Alignment = fyne.TextAlignCenter
 	gui.statusLabel = widget.NewLabel("Standby...")
 	gui.elapsedLabel = widget.NewLabel("00:00:00")
-	bottom_labels := container.New(
-		layout.NewHBoxLayout(),
+	gui.elapsedLabel.Alignment = fyne.TextAlignTrailing
+	bottom_labels := container.NewGridWithColumns(
+		3,
 		gui.statusLabel,
-		layout.NewSpacer(),
 		gui.speedLabel,
-		layout.NewSpacer(),
 		gui.elapsedLabel,
 	)
 
 	gui.cancelButton = widget.NewButton("Cancel", func() {
+		var cancelStr string
+		if data.taskType == START_WRITE {
+			cancelStr = "Cancelling the current operation may corrupt the destination drive.\nAre you sure to continue?"
+		} else if data.taskType == START_VERIFY {
+			cancelStr = "Are you sure to skip the verification of the drive?"
+		} else if data.taskType == START_READ {
+			cancelStr = "Current operation has not been finished. Are you sure to continue?"
+		}
+
 		dialog.ShowConfirm(
 			"Cancellation",
-			"Cancelling the current operation may corrupt the destination drive.\nAre you sure to continue?",
+			cancelStr,
 			func(b bool) {
 				if b {
 					data.bQuitTask <- struct{}{}
@@ -249,7 +258,7 @@ func StartGui() {
 				"Select a drive to read from!",
 				gui.window,
 			)
-		} else if len(gui.openPath.Text) < 1 {
+		} else if len(gui.savePath.Text) < 1 {
 			dialog.ShowInformation("Insufficient fields", "Select an image to write to!", gui.window)
 		} else {
 			dialog.ShowConfirm("Reading", "Are you sure to continue?", func(b bool) {
@@ -271,10 +280,10 @@ func StartGui() {
 		} else {
 			dialog.ShowConfirm("Writing", "Are you sure to continue?", func(b bool) {
 				if b {
-					gui.statusLabel.SetText("Writing...")
 					data.imagePath = gui.openPath.Text
 					data.taskType = START_WRITE
 					enableCancelButton(gui, data)
+					gui.statusLabel.SetText("Writing...")
 					StartMainTask(&data, gui)
 				}
 			}, gui.window)
@@ -340,9 +349,20 @@ func StartGui() {
 	gui.guiTabs.SetTabLocation(container.TabLocationTop)
 
 	gui.window.SetContent(gui.guiTabs)
-	gui.window.SetOnDropped(func(pos fyne.Position, dropped []fyne.URI) {
+	gui.window.SetOnDropped(func(_ fyne.Position, urix []fyne.URI) {
+		if len(urix) < 1 {
+			return
+		}
+		uri := urix[0]
+		if uri == nil {
+			return
+		}
+		isDir, _ := storage.CanList(uri)
+		if isDir {
+			return
+		}
 		if gui.guiTabs.SelectedIndex() == 0 {
-			gui.openPath.SetText(dropped[0].Path())
+			gui.openPath.SetText(urix[0].Path())
 		}
 	})
 	gui.window.Show()
